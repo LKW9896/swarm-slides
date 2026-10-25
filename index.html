@@ -1,0 +1,945 @@
+<title>无人机集群编队演示</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap">
+<style>
+/* Flight-deck slide deck — 10 dark 16:9 slides, container-query scaled, scroll-snap nav, instrument charts. */
+:root {
+  color-scheme: dark;
+  --bg: #0a1418;
+  --bg-2: #0c181d;
+  --panel: #0f1e24;
+  --panel-2: #13242b;
+  --panel-3: #182c34;
+  --ink: #e8f1f2;
+  --ink-2: #c4d4d8;
+  --muted: #8ba3ab;
+  --faint: #5f7a82;
+  --line: #243a42;
+  --line-strong: #35535d;
+  --grid: rgba(79, 209, 197, 0.10);
+  --accent: #4fd1c5;
+  --accent-2: #7fe0d6;
+  --accent-ink: #bff1ec;
+  --accent-soft: #12332f;
+  --warn: #f0a06a;
+  --warn-soft: #3a2418;
+  --data: #7aa2f7;
+  --data-soft: #16243f;
+  --field: #8fc9a8;
+  --field-soft: #142b20;
+  --font-display: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-snap-type: y mandatory; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+
+/* ---- shared drone symbols ---- */
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ---- HUD & nav ---- */
+.hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px max(20px, env(safe-area-inset-right, 0px)) 8px max(20px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(180deg, rgba(10,20,24,0.96), rgba(10,20,24,0.72) 80%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.hud-left { display: flex; align-items: center; gap: 10px; }
+.hud-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.hud-sec { color: var(--accent-ink); font-weight: 600; }
+.hud-no { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px max(20px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(0deg, rgba(10,20,24,0.96), rgba(10,20,24,0.72) 80%, transparent);
+}
+.nav-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.nav-btn:hover { color: var(--accent-ink); border-color: var(--accent); }
+.dots { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line-strong); background: transparent; cursor: pointer; padding: 0; transition: background .15s, border-color .15s; }
+.dot.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px rgba(79,209,197,.6); }
+
+/* ---- deck / stage ---- */
+.deck { }
+.stage-wrap {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: start;
+}
+.stage {
+  container-type: inline-size;
+  width: min(100%, 177.78svh);
+  aspect-ratio: 16 / 9;
+  position: relative;
+}
+.slide {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 120% at 78% -10%, var(--bg-2) 0%, var(--bg) 46%);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 2px 0 rgba(127,224,214,0.18) inset;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.slide::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 3.2cqw 3.2cqw;
+  -webkit-mask-image: radial-gradient(140% 90% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(140% 90% at 50% 0%, #000 40%, transparent 100%);
+  pointer-events: none;
+}
+.scope { position: absolute; width: 1.4cqw; height: 1.4cqw; border-color: var(--accent); opacity: 0.65; z-index: 3; }
+.scope.tl { top: 0.8cqw; left: 0.8cqw; border-top: 1px solid; border-left: 1px solid; }
+.scope.tr { top: 0.8cqw; right: 0.8cqw; border-top: 1px solid; border-right: 1px solid; }
+.scope.bl { bottom: 0.8cqw; left: 0.8cqw; border-bottom: 1px solid; border-left: 1px solid; }
+.scope.br { bottom: 0.8cqw; right: 0.8cqw; border-bottom: 1px solid; border-right: 1px solid; }
+
+.slide-hd {
+  position: relative; z-index: 2;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1.4cqw; align-items: center;
+  padding: 2.2cqw 2.6cqw 1.4cqw;
+  border-bottom: 1px solid var(--line);
+}
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 1.15cqw; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent); white-space: nowrap;
+}
+.kicker::before { content: ""; display: inline-block; width: 0.6cqw; height: 0.6cqw; border-radius: 50%; background: var(--accent); margin-right: 0.7cqw; vertical-align: 0.1cqw; box-shadow: 0 0 0.8cqw var(--accent); }
+.slide-title { font-family: var(--font-display); font-size: 3cqw; line-height: 1.12; letter-spacing: -0.02em; font-weight: 900; color: var(--ink); }
+.slide-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5cqw; white-space: nowrap; }
+.slide-no { font-family: var(--font-mono); font-size: 1.15cqw; letter-spacing: 0.06em; color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.slide-no b { color: var(--accent); font-weight: 600; }
+.meta-chip { font-family: var(--font-mono); font-size: 0.95cqw; letter-spacing: 0.04em; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); padding: 0.3cqw 0.8cqw; border-radius: 999px; }
+
+.slide-bd {
+  position: relative; z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  gap: 1.7cqw;
+  padding: 1.6cqw 2.6cqw 1.2cqw;
+  min-height: 0;
+}
+.col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 1.4cqw; }
+.col > div:not(.fig) { flex: 0 0 auto; }
+.col + .col { border-left: 1px solid var(--line); padding-left: 1.8cqw; }
+.block-label { font-family: var(--font-mono); font-size: 1cqw; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.9cqw; display: flex; align-items: center; gap: 0.7cqw; }
+.block-label::after { content: ""; height: 1px; flex: 1; background: linear-gradient(90deg, var(--line-strong), transparent); }
+.pts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.85cqw; }
+.pts li { position: relative; padding-left: 1.7cqw; font-size: 1.55cqw; line-height: 1.5; color: var(--ink-2); }
+.pts li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 0.5cqw; height: 0.5cqw; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0.7cqw rgba(79,209,197,0.7); }
+.pts li b { color: var(--ink); font-weight: 700; }
+.pts li .num { font-family: var(--font-mono); color: var(--accent-2); font-weight: 600; }
+.effect { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 0.5cqw 1cqw; align-items: baseline; font-size: 1.5cqw; line-height: 1.45; color: var(--ink-2); }
+.effect .k { font-family: var(--font-mono); font-size: 1.15cqw; letter-spacing: 0.04em; color: var(--warn); white-space: nowrap; font-weight: 600; }
+
+.fig { background: var(--panel); border: 1px solid var(--line); border-radius: 1cqw; padding: 1cqw 1.2cqw 0.9cqw; display: flex; flex-direction: column; gap: 0.6cqw; flex: 1 1 0; min-height: 0; }
+.fig.fig--fixed { flex: 0 0 auto; }
+.fig-hd { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 1cqw; }
+.fig-t { font-family: var(--font-mono); font-size: 0.95cqw; letter-spacing: 0.06em; color: var(--accent-ink); font-weight: 600; }
+.fig-type { font-family: var(--font-mono); font-size: 0.85cqw; color: var(--muted); white-space: nowrap; }
+.fig-canvas-wrap { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.fig-canvas { width: 100%; height: 100%; display: block; }
+.fig-note { flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.9cqw; line-height: 1.5; color: var(--muted); }
+.fig-note b { color: var(--accent-2); font-weight: 600; }
+.legend { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.5cqw 1.4cqw; font-family: var(--font-mono); font-size: 0.9cqw; color: var(--muted); }
+.legend .sw { display: inline-block; width: 0.8cqw; height: 0.8cqw; border-radius: 0.15cqw; margin-right: 0.4cqw; vertical-align: -0.05cqw; }
+
+.slide-ft {
+  position: relative; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 1.5cqw;
+  padding: 1.1cqw 2.6cqw 1.4cqw;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 0.95cqw; letter-spacing: 0.03em; color: var(--muted);
+}
+.ft-left { display: flex; align-items: center; gap: 1cqw; }
+.ft-dot { width: 0.6cqw; height: 0.6cqw; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0.6cqw var(--warn); }
+.ft-right { display: flex; gap: 1.8cqw; }
+.ft-right span b { color: var(--ink-2); font-weight: 500; }
+
+/* ---- svg label helpers ---- */
+.svl { font-family: var(--font-mono); fill: var(--muted); }
+.svl-ink { font-family: var(--font-mono); fill: var(--ink-2); }
+.svl-accent { font-family: var(--font-mono); fill: var(--accent-2); }
+.svl-warn { font-family: var(--font-mono); fill: var(--warn); }
+.svl-data { font-family: var(--font-mono); fill: var(--data); }
+
+/* ---- cover ---- */
+.cover-bd { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,0.85fr); gap: 2.4cqw; padding: 1.6cqw 2.6cqw 1.2cqw; min-height: 0; position: relative; z-index: 2; }
+.cover-left { display: flex; flex-direction: column; gap: 1.4cqw; min-width: 0; }
+.cover-title { font-family: var(--font-display); font-size: 4.4cqw; line-height: 1.08; letter-spacing: -0.03em; font-weight: 900; }
+.cover-title .a { color: var(--accent); }
+.cover-lede { font-size: 1.55cqw; line-height: 1.65; color: var(--ink-2); max-width: 42em; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.8cqw; }
+.chip { display: inline-flex; align-items: center; gap: 0.6cqw; font-family: var(--font-mono); font-size: 1cqw; padding: 0.45cqw 1cqw; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); }
+.chip b { color: var(--accent-2); font-weight: 600; }
+.cover-right { display: flex; flex-direction: column; gap: 1.2cqw; min-width: 0; }
+.timeline { flex: 0 0 auto; margin-top: auto; }
+.timeline-label { font-family: var(--font-mono); font-size: 0.95cqw; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.6cqw; }
+.timeline-track { display: grid; grid-template-columns: 2fr 3fr 3fr 3fr 1fr; gap: 0.3cqw; }
+.timeline-track span { padding: 0.55cqw 0.5cqw; border-radius: 0.4cqw; font-family: var(--font-mono); font-size: 0.85cqw; line-height: 1.3; text-align: center; }
+.tl-a { background: var(--accent-soft); color: var(--accent-ink); }
+.tl-b { background: var(--data-soft); color: var(--data); }
+.tl-c { background: var(--field-soft); color: var(--field); }
+.tl-d { background: var(--warn-soft); color: var(--warn); }
+.tl-e { background: var(--panel-3); color: var(--muted); }
+
+/* ---- KPI tiles ---- */
+.kpi { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0.45cqw; }
+.kpi-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 0.6cqw; padding: 0.45cqw 0.8cqw; display: flex; flex-direction: column; gap: 0.12cqw; }
+.kpi-tile .k { font-family: var(--font-mono); font-size: 0.78cqw; color: var(--muted); }
+.kpi-tile .v { font-family: var(--font-mono); font-size: 1.4cqw; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent-2); }
+.kpi-tile .v small { font-size: 0.8cqw; color: var(--muted); font-weight: 400; }
+.kpi-tile .st { font-family: var(--font-mono); font-size: 0.7cqw; color: var(--faint); }
+.kpi-tile.ok { border-color: var(--accent); }
+.kpi-tile.rec { border-color: var(--warn); }
+.kpi-tile.rec .v { color: var(--warn); }
+
+/* ---- architecture layers ---- */
+.arch { display: flex; flex-direction: column; gap: 0.45cqw; }
+.arch-layer { border: 1px solid var(--line); border-radius: 0.6cqw; padding: 0.4cqw 0.8cqw; background: var(--panel-2); }
+.arch-layer .t { font-family: var(--font-mono); font-size: 0.9cqw; font-weight: 600; letter-spacing: 0.06em; color: var(--accent-ink); display: flex; justify-content: space-between; align-items: baseline; gap: 1cqw; }
+.arch-layer .t small { color: var(--muted); font-weight: 400; font-size: 0.8cqw; }
+.arch-layer .d { font-size: 1.1cqw; line-height: 1.45; color: var(--ink-2); margin-top: 0.1cqw; }
+.arch-arrow { text-align: center; font-family: var(--font-mono); font-size: 0.85cqw; color: var(--faint); }
+.arch-safe { border-left: 0.3cqw solid var(--warn); }
+
+/* ---- gantt ---- */
+.gantt { display: grid; grid-template-columns: 10cqw minmax(0,1fr); row-gap: 1cqw; align-items: center; }
+.gantt-label { font-family: var(--font-mono); font-size: 0.95cqw; color: var(--ink-2); white-space: nowrap; }
+.gantt-label b { color: var(--accent-ink); font-weight: 600; display: block; }
+.gantt-track { position: relative; height: 3cqw; background: var(--panel-2); border: 1px solid var(--line); border-radius: 0.4cqw; }
+.gantt-bar { position: absolute; top: 12%; height: 76%; border-radius: 0.3cqw; opacity: 0.9; }
+.gantt-bar.a { background: var(--accent); } .gantt-bar.b { background: var(--data); } .gantt-bar.c { background: var(--field); }
+.gantt-bar.d { background: var(--warn); }
+.gantt-ms { position: relative; height: 2.2cqw; border-bottom: 1px dashed var(--line-strong); }
+.gantt-ms i { position: absolute; top: 50%; width: 1cqw; height: 1cqw; transform: translate(-50%,-50%) rotate(45deg); background: var(--warn); }
+.gantt-ms i span { position: absolute; top: 1.3cqw; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.8cqw; font-style: normal; color: var(--warn); white-space: nowrap; }
+.milestones { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.5cqw; }
+.milestones span { font-family: var(--font-mono); font-size: 0.92cqw; color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line); padding: 0.32cqw 0.7cqw; border-radius: 0.4cqw; }
+.milestones b { color: var(--accent-2); font-weight: 600; }
+
+/* ---- stacked 10s budget bar ---- */
+.budget { display: flex; height: 3cqw; border-radius: 0.4cqw; overflow: hidden; border: 1px solid var(--line); font-family: var(--font-mono); font-size: 0.9cqw; color: #07222a; }
+.budget span { display: flex; align-items: center; justify-content: center; font-weight: 600; white-space: nowrap; }
+.bu-1 { background: var(--accent); } .bu-2 { background: var(--data); } .bu-3 { background: var(--field); } .bu-4 { background: var(--warn); } .bu-5 { background: var(--muted); }
+
+/* ---- wide tables (slides that use them) ---- */
+.table-wrap { margin-top: 0.4cqw; overflow-x: auto; border: 1px solid var(--line); border-radius: 0.7cqw; }
+table { width: 100%; min-width: 40cqw; border-collapse: collapse; font-size: 1.02cqw; line-height: 1.45; }
+th, td { padding: 0.4cqw 0.8cqw; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-mono); font-size: 0.82cqw; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); background: var(--panel-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td b { color: var(--ink); font-weight: 600; }
+td .ok { color: var(--accent-2); font-family: var(--font-mono); }
+td .rec { color: var(--warn); font-family: var(--font-mono); }
+
+.slide-wide { position: relative; z-index: 2; padding: 0 2.6cqw 1.4cqw; }
+</style>
+
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <g id="dL">
+      <line x1="-11" y1="-11" x2="11" y2="11" stroke="var(--accent)" stroke-width="2"/>
+      <line x1="-11" y1="11" x2="11" y2="-11" stroke="var(--accent)" stroke-width="2"/>
+      <circle r="8.5" fill="var(--accent)"/>
+      <circle r="3" fill="var(--bg)"/>
+    </g>
+    <g id="dF">
+      <line x1="-9" y1="-9" x2="9" y2="9" stroke="var(--accent)" stroke-width="1.5" opacity="0.85"/>
+      <line x1="-9" y1="9" x2="9" y2="-9" stroke="var(--accent)" stroke-width="1.5" opacity="0.85"/>
+      <circle r="7.5" fill="var(--panel)" stroke="var(--accent)" stroke-width="1.5"/>
+      <circle r="2.4" fill="var(--accent)"/>
+    </g>
+  </defs>
+</svg>
+
+<main class="deck">
+
+  <!-- S01 封面 -->
+  <section class="stage-wrap" data-sec="封面">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">两新工坊创新项目 · 立项汇报</div>
+        <h1 class="slide-title">无人机集群编队设计与协同</h1>
+        <div class="slide-meta"><div class="slide-no"><b>01</b> / 10</div></div>
+      </header>
+      <div class="cover-bd">
+        <div class="cover-left">
+          <div class="cover-title">把集群编队<br><span class="a">从论文公式变成可复现平台</span></div>
+          <p class="cover-lede">用 6–10 架低成本四旋翼，搭建“仿真 + 实物”两级验证平台，完成队形保持、变换、避障、失效重构四类典型任务。</p>
+          <div class="chips">
+            <span class="chip"><b>6–10</b> 架</span>
+            <span class="chip"><b>≤0.3</b> m 队形误差</span>
+            <span class="chip"><b>≤10</b> s 重构</span>
+            <span class="chip"><b>12</b> 周 · 3 人</span>
+          </div>
+          <div class="timeline">
+            <div class="timeline-label">12 周 · 五个门禁</div>
+            <div class="timeline-track">
+              <span class="tl-a">W1–2 平台</span><span class="tl-b">W3–5 算法</span><span class="tl-c">W6–8 实飞</span><span class="tl-d">W9–11 联调</span><span class="tl-e">W12 成果</span>
+            </div>
+          </div>
+        </div>
+        <div class="cover-right">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 01 · 6 机菱形编队</span><span class="fig-type">俯视示意</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 220" role="img" aria-label="六机菱形编队俯视示意图">
+              <g stroke="var(--grid)" stroke-width="1"><line x1="20" y1="40" x2="340" y2="40"/><line x1="20" y1="80" x2="340" y2="80"/><line x1="20" y1="120" x2="340" y2="120"/><line x1="20" y1="160" x2="340" y2="160"/><line x1="20" y1="200" x2="340" y2="200"/><line x1="60" y1="20" x2="60" y2="200"/><line x1="120" y1="20" x2="120" y2="200"/><line x1="180" y1="20" x2="180" y2="200"/><line x1="240" y1="20" x2="240" y2="200"/><line x1="300" y1="20" x2="300" y2="200"/></g>
+              <g stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.5" fill="none"><line x1="180" y1="52" x2="150" y2="92"/><line x1="180" y1="52" x2="210" y2="92"/><line x1="150" y1="92" x2="210" y2="92"/><line x1="150" y1="92" x2="150" y2="132"/><line x1="210" y1="92" x2="210" y2="132"/><line x1="150" y1="132" x2="210" y2="132"/><line x1="150" y1="132" x2="180" y2="172"/><line x1="210" y1="132" x2="180" y2="172"/></g>
+              <use href="#dL" x="180" y="52"/><use href="#dF" x="150" y="92"/><use href="#dF" x="210" y="92"/><use href="#dF" x="150" y="132"/><use href="#dF" x="210" y="132"/><use href="#dF" x="180" y="172"/>
+              <text class="svl-accent" font-size="10" x="180" y="26" text-anchor="middle">L</text>
+              <text class="svl" font-size="9" x="165" y="70" text-anchor="middle">1.5 m</text><text class="svl" font-size="9" x="180" y="114" text-anchor="middle">1.5 m</text>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>领航机 L</span><span><i class="sw" style="background:#0f1e24;border:1px solid var(--accent)"></i>跟随机</span></div>
+            <p class="fig-note"><b>结论</b>：不是造一架飞机，而是造一套能复现的集群实验方法。</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>成员</th><th>分工</th><th>主责</th></tr></thead>
+              <tbody>
+                <tr><td><b>刘可文</b></td><td>集成与测试</td><td>总体方案、ROS 2–PX4、地面站、测试</td></tr>
+                <tr><td><b>曹钦威</b></td><td>算法</td><td>队形、一致性、事件触发、重构</td></tr>
+                <tr><td><b>李雨霏</b></td><td>平台与定位</td><td>机体/飞控、UWB/动捕、实飞保障</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <footer class="slide-ft">
+        <div class="ft-left"><span class="ft-dot"></span><span>指导老师 杨鹏飞 · 工业软件研究所 计算机技术 · 2026.10</span></div>
+        <div class="ft-right"><span>数据状态 <b>原文 / 建议 / 待核实</b></span><span>页码 <b>01</b></span></div>
+      </footer>
+    </div></div>
+  </section>
+
+  <!-- S02 背景与问题 -->
+  <section class="stage-wrap" data-sec="01 立题">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">01 · 立题 — 现实与问题</div>
+        <h1 class="slide-title">单机走向集群，三个效应被放大</h1>
+        <div class="slide-meta"><div class="slide-no"><b>02</b> / 10</div><div class="meta-chip">时长 0:55</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">现实与市场</div>
+            <ul class="pts">
+              <li><b>五类场景</b>：灯光表演、电力/桥梁巡检、灾害搜救、农林植保、末端物流</li>
+              <li>2023 低空经济约 <span class="num">5,059.5 亿元</span>，同比 +33.8%；2025E <span class="num">1.5 万亿元</span></li>
+              <li><b>单机瓶颈</b>：覆盖半径有限、任务串行、单点失效即中断</li>
+              <li><b>集群收益</b>：覆盖面积近线性增加，搜索时间近似 <span class="num">1/N</span></li>
+            </ul></div>
+          <div><div class="block-label">三个放大效应</div>
+            <div class="pts">
+              <div class="effect"><span class="k">误差放大</span><span>相对定位误差沿队形逐级传播，链式队形最敏感</span></div>
+              <div class="effect"><span class="k">通信放大</span><span>50–150 ms 延迟 + 丢包，一致性收敛变慢甚至发散</span></div>
+              <div class="effect"><span class="k">失效放大</span><span>单机失效造成队形缺口，重分配不及时会碰撞</span></div>
+            </div></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 02 · 低空经济规模</span><span class="fig-type">柱状图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="低空经济规模柱状图">
+              <g stroke="var(--grid)" stroke-width="1"><line x1="40" y1="170" x2="346" y2="170"/><line x1="40" y1="134" x2="346" y2="134"/><line x1="40" y1="98" x2="346" y2="98"/><line x1="40" y1="62" x2="346" y2="62"/><line x1="40" y1="26" x2="346" y2="26"/></g>
+              <g class="svl" font-size="9" text-anchor="end"><text x="32" y="174">0</text><text x="32" y="138">1</text><text x="32" y="102">2</text><text x="32" y="66">3</text><text x="32" y="30">4</text></g>
+              <text class="svl" font-size="9" x="32" y="14" text-anchor="end">万亿元</text>
+              <rect x="65" y="151.6" width="52" height="18.4" rx="2" fill="var(--accent)"/>
+              <rect x="167" y="116" width="52" height="54" rx="2" fill="var(--accent)" opacity="0.55"/>
+              <rect x="269" y="44" width="52" height="126" rx="2" fill="var(--accent)" opacity="0.3"/>
+              <text class="svl-ink" font-size="11" text-anchor="middle" x="91" y="145">0.51</text>
+              <text class="svl-warn" font-size="9" text-anchor="middle" x="91" y="133">+33.8%</text>
+              <text class="svl-ink" font-size="11" text-anchor="middle" x="193" y="109">1.5</text>
+              <text class="svl-ink" font-size="11" text-anchor="middle" x="295" y="37">3.5</text>
+              <g class="svl" font-size="10" text-anchor="middle"><text x="91" y="186">2023</text><text x="193" y="186">2025E</text><text x="295" y="186">2035E</text></g>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>实测</span><span><i class="sw" style="background:var(--accent);opacity:.55"></i>2025E</span><span><i class="sw" style="background:var(--accent);opacity:.3"></i>2035E</span></div>
+            <p class="fig-note"><b>结论</b>：市场增长确定，但集群作业的工程能力仍是瓶颈。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 04 · 误差沿队形传播</span><span class="fig-type">折线图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="误差沿队形传播放大曲线">
+              <g stroke="var(--grid)" stroke-width="1"><line x1="40" y1="172" x2="346" y2="172"/><line x1="40" y1="135" x2="346" y2="135"/><line x1="40" y1="98" x2="346" y2="98"/><line x1="40" y1="61" x2="346" y2="61"/><line x1="40" y1="24" x2="346" y2="24"/></g>
+              <g class="svl" font-size="9" text-anchor="end"><text x="32" y="176">0</text><text x="32" y="139">2</text><text x="32" y="102">4</text><text x="32" y="65">6</text><text x="32" y="28">8</text></g>
+              <text class="svl" font-size="9" x="32" y="14" text-anchor="end">倍数×</text>
+              <polyline points="40,153.5 101,135 162,112.8 223,83.2 284,51.7 346,24" fill="none" stroke="var(--warn)" stroke-width="2.2"/>
+              <polyline points="40,153.5 101,142.4 162,131.3 223,118.4 284,105.4 346,92.5" fill="none" stroke="var(--data)" stroke-width="2.2"/>
+              <polyline points="40,153.5 101,150.7 162,148.9 223,147.6 284,146.5 346,145.7" fill="none" stroke="var(--accent)" stroke-width="2.2"/>
+              <g class="svl" font-size="10" text-anchor="middle"><text x="40" y="190">1</text><text x="101" y="190">2</text><text x="162" y="190">3</text><text x="223" y="190">4</text><text x="284" y="190">5</text><text x="346" y="190">6</text></g>
+              <text class="svl" font-size="9" x="180" y="14" text-anchor="middle">距领航机跳数</text>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--warn)"></i>无融合</span><span><i class="sw" style="background:var(--data)"></i>仅 UWB</span><span><i class="sw" style="background:var(--accent)"></i>融合+交叉测距</span></div>
+            <p class="fig-note"><b>结论</b>：不抑制传播，队尾误差会先超目标；融合是必需项。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>问题定义：误差 / 通信 / 失效，三者都会被队形结构放大</span></div><div class="ft-right"><span>章节 <b>01 立题</b></span><span>页码 <b>02</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S03 目标与指标 -->
+  <section class="stage-wrap" data-sec="01 立题">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">01 · 立题 — 目标与路线</div>
+        <h1 class="slide-title">把“飞起来”变成“可验收”</h1>
+        <div class="slide-meta"><div class="slide-no"><b>03</b> / 10</div><div class="meta-chip">时长 0:40</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">目标与四类任务</div>
+            <ul class="pts">
+              <li><b>总目标</b>：6–10 架“仿真 + 实物”两级平台，任务/协同/执行三层可配置</li>
+              <li><b>四类任务</b>：队形保持、队形变换、避障绕行、单机失效重构</li>
+              <li><b>原文指标</b>：队形误差 ≤0.3 m · 3 机稳定 ≥5 min · 失效重构 ≤10 s</li>
+              <li><b>验收</b>：ROS bag + PX4 日志 + UWB 原始数据 + 视频，自动生成指标报告</li>
+            </ul></div>
+          <div><div class="block-label">技术路线选型</div>
+            <ul class="pts">
+              <li><b>集中式</b>：全局最优，但单点瓶颈、通信 O(N²)</li>
+              <li><b>分布式一致性</b>：鲁棒，但收敛受延迟/拓扑影响</li>
+              <li><b>领航-跟随</b>：直观，但误差沿链传播、领航机失效风险高</li>
+              <li><b>选型</b>：领航-跟随给骨架 + 一致性修正 + 事件触发抗通信受限</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig fig--fixed">
+            <div class="fig-hd"><span class="fig-t">图 06 · 核心指标</span><span class="fig-type">KPI</span></div>
+            <div class="kpi">
+              <div class="kpi-tile ok"><span class="k">队形误差</span><span class="v">≤0.3 <small>m</small></span><span class="st">原文</span></div>
+              <div class="kpi-tile ok"><span class="k">3 机稳定</span><span class="v">≥5 <small>min</small></span><span class="st">原文</span></div>
+              <div class="kpi-tile ok"><span class="k">失效重构</span><span class="v">≤10 <small>s</small></span><span class="st">原文</span></div>
+              <div class="kpi-tile rec"><span class="k">成功率</span><span class="v">≥90 <small>%</small></span><span class="st">建议</span></div>
+              <div class="kpi-tile rec"><span class="k">最小中心距</span><span class="v">≥1.5 <small>m</small></span><span class="st">待标定</span></div>
+              <div class="kpi-tile rec"><span class="k">链路延迟</span><span class="v">50–150 <small>ms</small></span><span class="st">原文</span></div>
+            </div>
+            <p class="fig-note"><b>结论</b>：先建立基线，再逐项逼近目标；可验收 > 看起来强。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 07 · 三路线对比</span><span class="fig-type">雷达图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 320 230" role="img" aria-label="三条技术路线五维对比雷达图">
+              <g transform="translate(120,120)">
+                <g fill="none" stroke="var(--line-strong)" stroke-width="1"><polygon points="0,-70 66.6,-21.6 41.2,56.6 -41.2,56.6 -66.6,-21.6"/><polygon points="0,-46 43.8,-14.2 27.1,37.2 -27.1,37.2 -43.8,-14.2"/><polygon points="0,-23 21.9,-7.1 13.5,18.6 -13.5,18.6 -21.9,-7.1"/></g>
+                <g stroke="var(--line-strong)" stroke-width="1"><line x1="0" y1="0" x2="0" y2="-70"/><line x1="0" y1="0" x2="66.6" y2="-21.6"/><line x1="0" y1="0" x2="41.2" y2="56.6"/><line x1="0" y1="0" x2="-41.2" y2="56.6"/><line x1="0" y1="0" x2="-66.6" y2="-21.6"/></g>
+                <polygon points="0,-56 40,-13 33,45 -25,34 -40,-13" fill="var(--accent)" opacity="0.22" stroke="var(--accent)" stroke-width="1.8"/>
+                <polygon points="0,-63 60,-19 37,51 -20,45 -33,-17" fill="var(--data)" opacity="0.15" stroke="var(--data)" stroke-width="1.4"/>
+                <polygon points="0,-28 20,-6 12,17 -20,11 -13,-6" fill="var(--warn)" opacity="0.18" stroke="var(--warn)" stroke-width="1.4"/>
+              </g>
+              <g class="svl" font-size="11"><text x="120" y="38" text-anchor="middle">鲁棒性</text><text x="200" y="100" text-anchor="start">扩展性</text><text x="168" y="182" text-anchor="start">成本</text><text x="72" y="182" text-anchor="end">通信效率</text><text x="40" y="100" text-anchor="end">可复现</text></g>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>本项目</span><span><i class="sw" style="background:var(--data)"></i>集中式</span><span><i class="sw" style="background:var(--warn)"></i>领航-跟随</span></div>
+            <p class="fig-note"><b>结论</b>：混合方案综合最均衡，代价是实现复杂度上升。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>指标页的价值是“可验收”，不是“看起来很强”</span></div><div class="ft-right"><span>章节 <b>01 立题</b></span><span>页码 <b>03</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S04 总体架构 -->
+  <section class="stage-wrap" data-sec="02 方案">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">02 · 方案 — 总体架构</div>
+        <h1 class="slide-title">三层解耦，换队形不改控制代码</h1>
+        <div class="slide-meta"><div class="slide-no"><b>04</b> / 10</div><div class="meta-chip">时长 0:45</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">三层职责</div>
+            <ul class="pts">
+              <li><b>任务层</b>：任务解析、队形库、队形切换、任务分配、航路规划</li>
+              <li><b>协同层</b>：领航-跟随、一致性修正、事件触发、邻居预测、失效重构</li>
+              <li><b>执行层</b>：PX4 位置控制、避障、低电量/失联/越界保护</li>
+            </ul></div>
+          <div><div class="block-label">接口与延迟预算</div>
+            <ul class="pts">
+              <li><b>接口</b>：ROS 2 话题 + MAVLink/uORB 到飞控</li>
+              <li><b>频率</b>：任务 1–5 Hz · 协同 20–50 Hz · 执行 50–100 Hz</li>
+              <li><b>预算</b>：感知 20 ms + 通信 50–150 ms + 控制 10 ms</li>
+              <li><b>解耦收益</b>：换队形只改配置；换飞控只改执行层适配</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig fig--fixed">
+            <div class="fig-hd"><span class="fig-t">图 09 · 三层架构</span><span class="fig-type">结构图</span></div>
+            <div class="arch">
+              <div class="arch-layer"><div class="t">任务层 <small>1–5 Hz</small></div><div class="d">任务解析 · 队形库 · 切换 · 任务分配 · 航路规划</div></div>
+              <div class="arch-arrow">▼</div>
+              <div class="arch-layer"><div class="t">协同层 <small>20–50 Hz</small></div><div class="d">领航-跟随 · 一致性 · 事件触发 · 邻居预测 · 重构</div></div>
+              <div class="arch-arrow">▼</div>
+              <div class="arch-layer"><div class="t">执行层 <small>50–100 Hz</small></div><div class="d">PX4 位置控制 · 避障 · 失效保护</div></div>
+            </div>
+            <p class="fig-note"><b>结论</b>：频率分层是实时性关键；安全监控贯穿三层，不让任务层阻塞执行层。</p>
+          </div>
+          <div class="fig fig--fixed">
+            <div class="fig-hd"><span class="fig-t">表 02 · 层间接口</span><span class="fig-type">接口表</span></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>层</th><th>输入</th><th>输出</th><th>频率</th></tr></thead>
+                <tbody>
+                  <tr><td><b>任务层</b></td><td>任务指令、地图</td><td>队形目标、任务分配</td><td class="ok">1–5 Hz</td></tr>
+                  <tr><td><b>协同层</b></td><td>邻居状态、队形目标</td><td>期望速度/位置</td><td class="ok">20–50 Hz</td></tr>
+                  <tr><td><b>执行层</b></td><td>期望位置、健康状态</td><td>电机/舵机指令</td><td class="ok">50–100 Hz</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>任务层生成队形，协同层保证收敛，执行层兜底安全</span></div><div class="ft-right"><span>章节 <b>02 方案</b></span><span>页码 <b>04</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S05 队形生成与保持 -->
+  <section class="stage-wrap" data-sec="02 方案">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">02 · 方案 — 关键技术一</div>
+        <h1 class="slide-title">队形生成与保持：可飞，不只是好看</h1>
+        <div class="slide-meta"><div class="slide-no"><b>05</b> / 10</div><div class="meta-chip">时长 0:55</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">队形库与约束</div>
+            <ul class="pts">
+              <li><b>队形库</b>：一字、菱形、环形、网格；参数化（间距、朝向、高度层、编号）</li>
+              <li><b>约束</b>：最小中心距 ≥1.5 m · 转弯半径 ≥2 m · 最大速度/加速度</li>
+              <li><b>生成</b>：模板 + 约束优化，最小化切换总路程/时间</li>
+            </ul></div>
+          <div><div class="block-label">保持与切换</div>
+            <ul class="pts">
+              <li><b>保持</b>：领航-跟随 + 一致性修正；风扰前馈 + 饱和限幅</li>
+              <li><b>评价</b>：稳态误差、切换超调、收敛时间、总路程</li>
+              <li><b>关键</b>：前馈压峰值、一致性压稳态，两者缺一都会超目标</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 11 · 四种队形</span><span class="fig-type">俯视 2×2</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="四种队形俯视图">
+              <g transform="translate(90,50)"><line x1="20" y1="50" x2="20" y2="50"/><g stroke="var(--accent)" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"><line x1="10" y1="50" x2="30" y2="50"/><line x1="30" y1="50" x2="50" y2="50"/><line x1="50" y1="50" x2="70" y2="50"/></g><use href="#dF" transform="translate(10,50) scale(0.7)"/><use href="#dL" transform="translate(30,50) scale(0.7)"/><use href="#dF" transform="translate(50,50) scale(0.7)"/><use href="#dF" transform="translate(70,50) scale(0.7)"/><text class="svl" font-size="9" x="40" y="80" text-anchor="middle">一字</text></g>
+              <g transform="translate(270,50)"><g stroke="var(--accent)" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"><line x1="0" y1="20" x2="-16" y2="38"/><line x1="0" y1="20" x2="16" y2="38"/><line x1="-16" y1="38" x2="16" y2="38"/><line x1="-16" y1="38" x2="0" y2="56"/><line x1="16" y1="38" x2="0" y2="56"/></g><use href="#dL" transform="translate(0,20) scale(0.7)"/><use href="#dF" transform="translate(-16,38) scale(0.7)"/><use href="#dF" transform="translate(16,38) scale(0.7)"/><use href="#dF" transform="translate(-16,56) scale(0.7)"/><use href="#dF" transform="translate(16,56) scale(0.7)"/><use href="#dF" transform="translate(0,74) scale(0.7)"/><text class="svl" font-size="9" x="0" y="100" text-anchor="middle">菱形</text></g>
+              <g transform="translate(90,150)"><g stroke="var(--accent)" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"><line x1="40" y1="0" x2="60" y2="12"/><line x1="60" y1="12" x2="60" y2="32"/><line x1="60" y1="32" x2="40" y2="44"/><line x1="40" y1="44" x2="20" y2="32"/><line x1="20" y1="32" x2="20" y2="12"/><line x1="20" y1="12" x2="40" y2="0"/></g><use href="#dL" transform="translate(40,0) scale(0.7)"/><use href="#dF" transform="translate(60,12) scale(0.7)"/><use href="#dF" transform="translate(60,32) scale(0.7)"/><use href="#dF" transform="translate(40,44) scale(0.7)"/><use href="#dF" transform="translate(20,32) scale(0.7)"/><use href="#dF" transform="translate(20,12) scale(0.7)"/><text class="svl" font-size="9" x="40" y="74" text-anchor="middle">环形</text></g>
+              <g transform="translate(270,150)"><g stroke="var(--accent)" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"><line x1="10" y1="10" x2="10" y2="30"/><line x1="10" y1="30" x2="30" y2="30"/><line x1="30" y1="30" x2="30" y2="10"/><line x1="30" y1="10" x2="10" y2="10"/></g><use href="#dL" transform="translate(10,10) scale(0.7)"/><use href="#dF" transform="translate(30,10) scale(0.7)"/><use href="#dF" transform="translate(10,30) scale(0.7)"/><use href="#dF" transform="translate(30,30) scale(0.7)"/><text class="svl" font-size="9" x="20" y="56" text-anchor="middle">网格</text></g>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：队形库是配置项；换任务只换参数与切换策略。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 12 · 队形切换误差</span><span class="fig-type">折线图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 180" role="img" aria-label="队形切换误差收敛曲线">
+              <g stroke="var(--grid)" stroke-width="1"><line x1="40" y1="150" x2="346" y2="150"/><line x1="40" y1="120" x2="346" y2="120"/><line x1="40" y1="90" x2="346" y2="90"/><line x1="40" y1="60" x2="346" y2="60"/><line x1="40" y1="30" x2="346" y2="30"/></g>
+              <g class="svl" font-size="9" text-anchor="end"><text x="32" y="154">0</text><text x="32" y="124">0.25</text><text x="32" y="94">0.5</text><text x="32" y="64">0.75</text><text x="32" y="34">1.0</text></g>
+              <line x1="40" y1="105" x2="346" y2="105" stroke="var(--warn)" stroke-width="1.4" stroke-dasharray="5 4"/>
+              <text class="svl-warn" font-size="9" x="346" y="100" text-anchor="end">0.3 m 目标</text>
+              <polyline points="40,150 80,132 110,52 140,66 180,96 220,104 260,108 300,110 346,111" fill="none" stroke="var(--warn)" stroke-width="2"/>
+              <polyline points="40,150 90,124 130,100 180,88 220,84 260,82 300,81 346,80" fill="none" stroke="var(--data)" stroke-width="2"/>
+              <polyline points="40,150 90,118 130,98 180,82 220,72 260,66 300,62 346,60" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              <g class="svl" font-size="10" text-anchor="middle"><text x="40" y="168">0</text><text x="116" y="168">5</text><text x="193" y="168">10</text><text x="270" y="168">15</text><text x="346" y="168">20 s</text></g>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--warn)"></i>无前馈</span><span><i class="sw" style="background:var(--data)"></i>有前馈</span><span><i class="sw" style="background:var(--accent)"></i>前馈+一致性</span></div>
+            <p class="fig-note"><b>结论</b>：前馈压峰值、一致性压稳态。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>队形必须满足物理约束，否则仿真漂亮、实飞炸机</span></div><div class="ft-right"><span>章节 <b>02 方案</b></span><span>页码 <b>05</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S06 通信受限协同 -->
+  <section class="stage-wrap" data-sec="02 方案">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">02 · 方案 — 关键技术二</div>
+        <h1 class="slide-title">通信受限协同：少通信换稳编队</h1>
+        <div class="slide-meta"><div class="slide-no"><b>06</b> / 10</div><div class="meta-chip">时长 0:55</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">问题与方法</div>
+            <ul class="pts">
+              <li><b>问题</b>：50–150 ms 延迟、10% 丢包、带宽随邻居数增长</li>
+              <li><b>事件触发</b>：邻居误差超过阈值才发送；阈值与队形误差挂钩</li>
+              <li><b>邻居预测</b>：一阶/二阶模型预测邻居状态，补丢包与延迟</li>
+              <li><b>一致性</b>：增益随延迟自适应；图拉普拉斯特征值约束稳定域</li>
+            </ul></div>
+          <div><div class="block-label">预期与边界</div>
+            <ul class="pts">
+              <li><b>预期</b>：通信量下降 30–60%（文献范围，待实测），误差仍 ≤0.3 m</li>
+              <li><b>工作区</b>：延迟 ≤150 ms、丢包 ≤10% 时收敛；边界外触发降级</li>
+              <li><b>降级</b>：收缩队形 / 悬停 / 返航，避免发散后相撞</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 13 · 周期 vs 事件触发</span><span class="fig-type">时序对比</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 180" role="img" aria-label="周期通信与事件触发时序对比">
+              <text class="svl" font-size="9" x="10" y="32">周期</text>
+              <g stroke="var(--data)" stroke-width="1.6">
+                <line x1="50" y1="22" x2="50" y2="40"/><line x1="66" y1="22" x2="66" y2="40"/><line x1="82" y1="22" x2="82" y2="40"/><line x1="98" y1="22" x2="98" y2="40"/><line x1="114" y1="22" x2="114" y2="40"/><line x1="130" y1="22" x2="130" y2="40"/><line x1="146" y1="22" x2="146" y2="40"/><line x1="162" y1="22" x2="162" y2="40"/><line x1="178" y1="22" x2="178" y2="40"/><line x1="194" y1="22" x2="194" y2="40"/><line x1="210" y1="22" x2="210" y2="40"/><line x1="226" y1="22" x2="226" y2="40"/><line x1="242" y1="22" x2="242" y2="40"/><line x1="258" y1="22" x2="258" y2="40"/><line x1="274" y1="22" x2="274" y2="40"/><line x1="290" y1="22" x2="290" y2="40"/><line x1="306" y1="22" x2="306" y2="40"/><line x1="322" y1="22" x2="322" y2="40"/>
+              </g>
+              <line x1="50" y1="48" x2="340" y2="48" stroke="var(--line-strong)" stroke-width="1"/>
+              <text class="svl" font-size="9" x="10" y="78">事件触发</text>
+              <g stroke="var(--accent)" stroke-width="1.6">
+                <line x1="50" y1="68" x2="50" y2="86"/><line x1="66" y1="68" x2="66" y2="86"/><line x1="98" y1="68" x2="98" y2="86"/><line x1="120" y1="68" x2="120" y2="86"/><line x1="210" y1="68" x2="210" y2="86"/><line x1="226" y1="68" x2="226" y2="86"/><line x1="242" y1="68" x2="242" y2="86"/><line x1="310" y1="68" x2="310" y2="86"/>
+              </g>
+              <line x1="50" y1="94" x2="340" y2="94" stroke="var(--line-strong)" stroke-width="1"/>
+              <text class="svl" font-size="9" x="10" y="120">带宽</text>
+              <rect x="50" y="108" width="290" height="12" rx="2" fill="var(--data)" opacity="0.5"/>
+              <rect x="50" y="108" width="101.5" height="12" rx="2" fill="var(--accent)"/>
+              <text class="svl" font-size="9" x="50" y="136">周期 100%</text>
+              <text class="svl-accent" font-size="9" x="250" y="136">事件触发 35%</text>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：事件触发把带宽花在“需要的时候”。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 14 · 延迟×丢包工作区</span><span class="fig-type">热力图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="延迟与丢包队形误差热力图">
+              <g class="svl" font-size="9" text-anchor="middle"><text x="86" y="20">0</text><text x="136" y="20">50</text><text x="186" y="20">100</text><text x="236" y="20">150</text><text x="286" y="20">200 ms</text></g>
+              <g class="svl" font-size="9" text-anchor="end"><text x="48" y="46">0%</text><text x="48" y="82">5%</text><text x="48" y="118">10%</text><text x="48" y="154">20%</text></g>
+              <g stroke="var(--line)" stroke-width="1">
+                <rect x="60" y="32" width="52" height="28" fill="var(--accent)" opacity="0.15"/>
+                <rect x="112" y="32" width="52" height="28" fill="var(--accent)" opacity="0.28"/>
+                <rect x="164" y="32" width="52" height="28" fill="var(--accent)" opacity="0.4"/>
+                <rect x="216" y="32" width="52" height="28" fill="var(--accent)" opacity="0.55"/>
+                <rect x="268" y="32" width="52" height="28" fill="var(--accent)" opacity="0.7"/>
+                <rect x="60" y="68" width="52" height="28" fill="var(--accent)" opacity="0.2"/>
+                <rect x="112" y="68" width="52" height="28" fill="var(--accent)" opacity="0.38"/>
+                <rect x="164" y="68" width="52" height="28" fill="var(--accent)" opacity="0.5"/>
+                <rect x="216" y="68" width="52" height="28" fill="var(--accent)" opacity="0.65"/>
+                <rect x="268" y="68" width="52" height="28" fill="var(--warn)" opacity="0.55"/>
+                <rect x="60" y="104" width="52" height="28" fill="var(--accent)" opacity="0.3"/>
+                <rect x="112" y="104" width="52" height="28" fill="var(--accent)" opacity="0.5"/>
+                <rect x="164" y="104" width="52" height="28" fill="var(--warn)" opacity="0.4"/>
+                <rect x="216" y="104" width="52" height="28" fill="var(--warn)" opacity="0.55"/>
+                <rect x="268" y="104" width="52" height="28" fill="var(--warn)" opacity="0.7"/>
+                <rect x="60" y="140" width="52" height="28" fill="var(--warn)" opacity="0.4"/>
+                <rect x="112" y="140" width="52" height="28" fill="var(--warn)" opacity="0.5"/>
+                <rect x="164" y="140" width="52" height="28" fill="var(--warn)" opacity="0.65"/>
+                <rect x="216" y="140" width="52" height="28" fill="var(--warn)" opacity="0.8"/>
+                <rect x="268" y="140" width="52" height="28" fill="var(--warn)" opacity="0.95"/>
+              </g>
+              <rect x="60" y="32" width="156" height="100" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="5 4"/>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>≤0.3 m 工作区</span><span><i class="sw" style="background:var(--warn)"></i>需降级</span></div>
+            <p class="fig-note"><b>结论</b>：给出“还能飞”的边界，边界外有降级策略。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>抗延迟不能靠“调大增益”，要靠触发与预测</span></div><div class="ft-right"><span>章节 <b>02 方案</b></span><span>页码 <b>06</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S07 定位与动态重构 -->
+  <section class="stage-wrap" data-sec="02 方案">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">02 · 方案 — 关键技术三·四</div>
+        <h1 class="slide-title">拒止定位 + 动态重构：两步闭环</h1>
+        <div class="slide-meta"><div class="slide-no"><b>07</b> / 10</div><div class="meta-chip">时长 0:55</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">GPS 拒止定位</div>
+            <ul class="pts">
+              <li><b>室内</b>：UWB 视距 10–30 cm + 动捕 mm 级；室外 RTK/GPS</li>
+              <li><b>融合</b>：EKF/因子图融合 UWB、动捕、IMU、飞控里程计</li>
+              <li><b>抑制</b>：全局约束 + 邻居交叉测距，抑制定位误差沿队形放大</li>
+              <li><b>失效</b>：UWB 丢点降级惯性递推，超时触发悬停/返航</li>
+            </ul></div>
+          <div><div class="block-label">动态重构与任务分配</div>
+            <ul class="pts">
+              <li><b>流程</b>：故障检测 → 角色重分配 → 队形重构 → 安全间隔校验</li>
+              <li><b>约束</b>：全程 ≥1.5 m 中心距、不穿越障碍、总时间 ≤10 s</li>
+              <li><b>降级</b>：无法重构时收缩队形 / 悬停 / 返航</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 15 · 定位精度</span><span class="fig-type">对数范围条</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 180" role="img" aria-label="定位精度范围对比">
+              <g class="svl" font-size="10">
+                <text x="10" y="34">动捕</text><text x="10" y="72">RTK</text><text x="10" y="110">UWB</text><text x="10" y="148">GPS</text>
+              </g>
+              <line x1="58" y1="160" x2="58" y2="22" stroke="var(--line-strong)" stroke-width="1"/>
+              <rect x="62" y="26" width="26" height="12" rx="2" fill="var(--accent)"/><text class="svl-accent" font-size="9" x="94" y="36">&lt;1 mm</text>
+              <rect x="118" y="64" width="40" height="12" rx="2" fill="var(--accent)"/><text class="svl-accent" font-size="9" x="164" y="74">2–5 cm</text>
+              <rect x="150" y="102" width="58" height="12" rx="2" fill="var(--accent)"/><text class="svl-accent" font-size="9" x="214" y="112">10–30 cm</text>
+              <rect x="196" y="140" width="86" height="12" rx="2" fill="var(--warn)"/><text class="svl-warn" font-size="9" x="288" y="150">1–5 m</text>
+              <text class="svl" font-size="9" x="350" y="172" text-anchor="end">误差（对数轴）</text>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：精度与成本匹配；室内 UWB/动捕、室外 RTK。</p>
+          </div>
+          <div class="fig fig--fixed">
+            <div class="fig-hd"><span class="fig-t">图 17 · 重构时间预算</span><span class="fig-type">五步 10 s</span></div>
+            <div class="budget">
+              <span class="bu-1" style="width:10%"></span>
+              <span class="bu-2" style="width:5%"></span>
+              <span class="bu-3" style="width:50%"></span>
+              <span class="bu-4" style="width:10%"></span>
+              <span class="bu-5" style="width:25%"></span>
+            </div>
+            <div class="legend">
+              <span><i class="sw" style="background:var(--accent)"></i>检测 1.0s</span>
+              <span><i class="sw" style="background:var(--data)"></i>决策 0.5s</span>
+              <span><i class="sw" style="background:var(--field)"></i>重规划 5.0s</span>
+              <span><i class="sw" style="background:var(--warn)"></i>校验 1.0s</span>
+              <span><i class="sw" style="background:var(--muted)"></i>缓冲 2.5s</span>
+            </div>
+            <p class="fig-note"><b>结论</b>：10 s 不是拍脑袋，是分解到每一步的预算；超预算即降级。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>单机失效不是“减一架”，而是整队重新编排</span></div><div class="ft-right"><span>章节 <b>02 方案</b></span><span>页码 <b>07</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S08 安全与验证 -->
+  <section class="stage-wrap" data-sec="03 验证">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">03 · 验证 — 安全与门禁</div>
+        <h1 class="slide-title">先不炸机，再逐级放飞</h1>
+        <div class="slide-meta"><div class="slide-no"><b>08</b> / 10</div><div class="meta-chip">时长 0:40</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">三级安全保护</div>
+            <ul class="pts">
+              <li><b>三级安全</b>：机载 PX4 failsafe → 协同层降级编队 → 地面站接管</li>
+              <li><b>触发</b>：低电量、失联、越界、定位超时、间隔过小、姿态异常</li>
+              <li><b>动作</b>：悬停、返航、降落、收缩队形、急停</li>
+            </ul></div>
+          <div><div class="block-label">验证门禁与预期结果</div>
+            <ul class="pts">
+              <li><b>三级验证</b>：仿真 6 机 → 3 机室内实飞 → 6–10 机扩展</li>
+              <li><b>门禁</b>：仿真不达标不放实飞；3 机不稳不扩 6 机</li>
+              <li><b>数据</b>：ROS bag、PX4 日志、UWB 原始数据、视频 + 自动指标脚本</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 19 · 安全状态机</span><span class="fig-type">状态机</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="安全状态机">
+              <defs>
+                <marker id="am-a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+                <marker id="am-w" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--warn)"/></marker>
+              </defs>
+              <g fill="var(--panel-2)" stroke="var(--line-strong)" stroke-width="1.4">
+                <rect x="20" y="70" width="80" height="40" rx="8"/>
+                <rect x="140" y="70" width="80" height="40" rx="8"/>
+                <rect x="260" y="30" width="80" height="40" rx="8"/>
+                <rect x="260" y="130" width="80" height="40" rx="8"/>
+              </g>
+              <g fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.4"><rect x="140" y="158" width="80" height="36" rx="8"/></g>
+              <g fill="none" stroke="var(--accent)" stroke-width="1.6">
+                <line x1="100" y1="90" x2="140" y2="90" marker-end="url(#am-a)"/>
+                <line x1="220" y1="75" x2="260" y2="55" marker-end="url(#am-a)"/>
+                <line x1="220" y1="105" x2="260" y2="155" marker-end="url(#am-a)"/>
+                <line x1="300" y1="70" x2="300" y2="130" marker-end="url(#am-a)"/>
+              </g>
+              <line x1="180" y1="110" x2="180" y2="158" stroke="var(--warn)" stroke-width="1.6" marker-end="url(#am-w)"/>
+              <g font-family="var(--font-mono)" text-anchor="middle">
+                <text x="60" y="86" font-size="12" fill="var(--ink-2)">正常</text><text x="60" y="102" font-size="8" fill="var(--muted)">机载</text>
+                <text x="180" y="86" font-size="12" fill="var(--ink-2)">降级</text><text x="180" y="102" font-size="8" fill="var(--muted)">协同层</text>
+                <text x="300" y="46" font-size="12" fill="var(--ink-2)">返航</text><text x="300" y="62" font-size="8" fill="var(--muted)">机载·地面</text>
+                <text x="300" y="146" font-size="12" fill="var(--ink-2)">着陆</text><text x="300" y="162" font-size="8" fill="var(--muted)">地面站</text>
+                <text x="180" y="181" font-size="12" fill="var(--warn)">急停</text>
+              </g>
+              <text x="118" y="83" font-size="8" fill="var(--muted)" text-anchor="middle" font-family="var(--font-mono)">异常</text>
+              <text x="188" y="132" font-size="8" fill="var(--warn)" font-family="var(--font-mono)">危急</text>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：每个状态都有明确入口和出口；没有出口就是设计缺陷。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 22 · 预期数据看板</span><span class="fig-type">2×2</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="预期数据看板四指标">
+              <g font-family="var(--font-mono)" font-size="8" fill="var(--muted)">
+                <text x="12" y="14">误差收敛</text><text x="192" y="14">重构时间</text><text x="12" y="110">成功率</text><text x="192" y="110">通信量</text>
+              </g>
+              <line x1="180" y1="12" x2="180" y2="96" stroke="var(--line)" stroke-width="1"/>
+              <line x1="12" y1="102" x2="348" y2="102" stroke="var(--line)" stroke-width="1"/>
+              <line x1="20" y1="60" x2="160" y2="60" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3"/>
+              <polyline points="20,90 48,80 76,70 104,64 132,61 160,60" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+              <line x1="20" y1="60" x2="160" y2="60" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3"/>
+              <rect x="200" y="60" width="150" height="20" fill="var(--accent)" opacity="0.25"/>
+              <rect x="210" y="62" width="6" height="16" fill="var(--accent)"/><rect x="230" y="64" width="6" height="12" fill="var(--accent)"/><rect x="250" y="66" width="6" height="8" fill="var(--accent)"/><rect x="270" y="63" width="6" height="14" fill="var(--accent)"/><rect x="290" y="65" width="6" height="10" fill="var(--accent)"/>
+              <line x1="200" y1="40" x2="350" y2="40" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3"/>
+              <g stroke="var(--accent)" stroke-width="1.4"><line x1="20" y1="150" x2="20" y2="150"/></g>
+              <rect x="24" y="128" width="16" height="22" fill="var(--accent)"/><rect x="52" y="120" width="16" height="30" fill="var(--accent)"/><rect x="80" y="132" width="16" height="18" fill="var(--accent)"/><rect x="108" y="124" width="16" height="26" fill="var(--accent)"/><rect x="136" y="130" width="16" height="20" fill="var(--accent)"/>
+              <line x1="20" y1="90" x2="160" y2="90" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3"/>
+              <rect x="200" y="128" width="60" height="22" fill="var(--data)" opacity="0.6"/><rect x="276" y="140" width="30" height="10" fill="var(--accent)"/>
+              <text font-family="var(--font-mono)" font-size="8" fill="var(--muted)" x="200" y="124">周期</text><text font-family="var(--font-mono)" font-size="8" fill="var(--accent-2)" x="276" y="124">触发</text>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：四个指标一起看，避免“单点漂亮”。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>安全是底线；验证是逐级收敛，不是一次性演示</span></div><div class="ft-right"><span>章节 <b>03 验证</b></span><span>页码 <b>08</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S09 分工与进度 -->
+  <section class="stage-wrap" data-sec="04 执行">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">04 · 执行 — 分工与进度</div>
+        <h1 class="slide-title">三个人、十二周、五个门禁</h1>
+        <div class="slide-meta"><div class="slide-no"><b>09</b> / 10</div><div class="meta-chip">时长 0:50</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">三条线分工</div>
+            <ul class="pts">
+              <li><b>刘可文 · 集成与测试</b>：总体方案、ROS 2–PX4、地面站、测试组织、文档答辩</li>
+              <li><b>曹钦威 · 算法</b>：队形生成、一致性/领航-跟随、事件触发、重构算法</li>
+              <li><b>李雨霏 · 平台与定位</b>：机体/飞控、UWB/动捕、通信、Gazebo、实飞保障</li>
+              <li><b>协作</b>：每周例会 · 双周里程碑 · 代码 Review · 交叉备份</li>
+            </ul></div>
+          <div><div class="block-label">五个门禁</div>
+            <ul class="pts">
+              <li><span class="num">M1</span> W2 仿真跑通 · <span class="num">M2</span> W5 6 机 ≤0.3 m</li>
+              <li><span class="num">M3</span> W8 3 机 ≥5 min · <span class="num">M4</span> W11 6 机 + ≤10 s</li>
+              <li><span class="num">M5</span> W12 成果包；延期先裁范围，不降指标</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 24 · 12 周甘特图</span><span class="fig-type">泳道图</span></div>
+            <div class="gantt">
+              <div class="gantt-label"><b>刘可文</b>集成/测试</div><div class="gantt-track"><span class="gantt-bar a" style="left:0%;width:16.7%"></span><span class="gantt-bar a" style="left:16.7%;width:25%"></span><span class="gantt-bar a" style="left:41.7%;width:25%"></span><span class="gantt-bar a" style="left:66.7%;width:25%"></span><span class="gantt-bar a" style="left:91.7%;width:8.3%"></span></div>
+              <div class="gantt-label"><b>曹钦威</b>算法</div><div class="gantt-track"><span class="gantt-bar b" style="left:16.7%;width:25%"></span><span class="gantt-bar b" style="left:41.7%;width:25%"></span><span class="gantt-bar b" style="left:66.7%;width:25%"></span><span class="gantt-bar b" style="left:91.7%;width:8.3%"></span></div>
+              <div class="gantt-label"><b>李雨霏</b>平台/定位</div><div class="gantt-track"><span class="gantt-bar c" style="left:0%;width:16.7%"></span><span class="gantt-bar c" style="left:16.7%;width:25%"></span><span class="gantt-bar c" style="left:41.7%;width:25%"></span><span class="gantt-bar c" style="left:66.7%;width:25%"></span><span class="gantt-bar c" style="left:91.7%;width:8.3%"></span></div>
+              <div class="gantt-label">里程碑</div><div class="gantt-ms"><i style="left:8.3%"><span>M1</span></i><i style="left:41.7%"><span>M2</span></i><i style="left:66.7%"><span>M3</span></i><i style="left:91.7%"><span>M4</span></i><i style="left:100%"><span>M5</span></i></div>
+            </div>
+            <div class="milestones">
+              <span><b>M1</b> W2 仿真跑通</span><span><b>M2</b> W5 6机≤0.3m</span><span><b>M3</b> W8 3机≥5min</span><span><b>M4</b> W11 ≤10s+90%</span><span><b>M5</b> W12 成果包</span>
+            </div>
+            <p class="fig-note"><b>结论</b>：W5/W8/W11 是硬门禁；关键路径“平台→仿真→3 机→6 机”。延期先裁范围，不降指标。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>两条技术线 + 一条集成线；接口清晰比分工漂亮更重要</span></div><div class="ft-right"><span>章节 <b>04 执行</b></span><span>页码 <b>09</b></span></div></footer>
+    </div></div>
+  </section>
+
+  <!-- S10 创新·价值·成果 -->
+  <section class="stage-wrap" data-sec="05 价值">
+    <div class="stage"><div class="slide">
+      <span class="scope tl"></span><span class="scope tr"></span><span class="scope bl"></span><span class="scope br"></span>
+      <header class="slide-hd">
+        <div class="kicker">05 · 价值 — 创新与成果</div>
+        <h1 class="slide-title">创新不是新算法，是可复现的组合</h1>
+        <div class="slide-meta"><div class="slide-no"><b>10</b> / 10</div></div>
+      </header>
+      <div class="slide-bd">
+        <section class="col">
+          <div><div class="block-label">三个创新点</div>
+            <ul class="pts">
+              <li><b>分层解耦</b>：任务层/协同层/执行层，队形与任务可配置</li>
+              <li><b>通信受限鲁棒</b>：事件触发 + 邻居预测，降带宽、抗丢包</li>
+              <li><b>低成本可复现</b>：开源飞控 + ROS 2，单机成本可控、实验可复制</li>
+              <li><b>边界</b>：创新在“组合与工程化”，不是提出新的一致性理论</li>
+            </ul></div>
+          <div><div class="block-label">应用价值与预期成果</div>
+            <ul class="pts">
+              <li><b>场景</b>：园区/电力巡检、应急搜救、大型活动编队表演、教学科研</li>
+              <li><b>成果</b>：软件系统 + 研究报告 + 3/6 机演示 + 可选软著/专利</li>
+            </ul></div>
+        </section>
+        <section class="col">
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 25 · 综合能力</span><span class="fig-type">雷达图</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 320 180" role="img" aria-label="综合能力雷达图">
+              <g transform="translate(110,92)">
+                <g fill="none" stroke="var(--line-strong)" stroke-width="1"><polygon points="0,-56 53.3,-17.3 32.9,45.3 -32.9,45.3 -53.3,-17.3"/><polygon points="0,-30 28.5,-9.3 17.6,24.2 -17.6,24.2 -28.5,-9.3"/></g>
+                <g stroke="var(--line-strong)" stroke-width="1"><line x1="0" y1="0" x2="0" y2="-56"/><line x1="0" y1="0" x2="53.3" y2="-17.3"/><line x1="0" y1="0" x2="32.9" y2="45.3"/><line x1="0" y1="0" x2="-32.9" y2="45.3"/><line x1="0" y1="0" x2="-53.3" y2="-17.3"/></g>
+                <polygon points="0,-44 40,-10 33,36 -26,28 -40,-13" fill="var(--accent)" opacity="0.22" stroke="var(--accent)" stroke-width="1.8"/>
+                <polygon points="0,-50 48,-15 30,40 -20,34 -48,-15" fill="var(--data)" opacity="0.14" stroke="var(--data)" stroke-width="1.4"/>
+                <polygon points="0,-22 20,-5 13,18 -18,12 -20,-6" fill="var(--warn)" opacity="0.18" stroke="var(--warn)" stroke-width="1.4"/>
+              </g>
+              <g class="svl" font-size="10"><text x="110" y="26" text-anchor="middle">鲁棒性</text><text x="176" y="74" text-anchor="start">扩展</text><text x="146" y="142" text-anchor="start">成本</text><text x="70" y="142" text-anchor="end">通信</text><text x="44" y="74" text-anchor="end">可复现</text></g>
+            </svg></div>
+            <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>本项目</span><span><i class="sw" style="background:var(--data)"></i>集中式</span><span><i class="sw" style="background:var(--warn)"></i>领航-跟随</span></div>
+            <p class="fig-note"><b>结论</b>：没有一项满分，但综合最均衡。</p>
+          </div>
+          <div class="fig">
+            <div class="fig-hd"><span class="fig-t">图 28 · 6 机编队轨迹</span><span class="fig-type">结束视觉</span></div>
+            <div class="fig-canvas-wrap"><svg class="fig-canvas" viewBox="0 0 360 200" role="img" aria-label="六机编队俯视轨迹">
+              <g stroke="var(--grid)" stroke-width="1"><line x1="20" y1="50" x2="340" y2="50"/><line x1="20" y1="100" x2="340" y2="100"/><line x1="20" y1="150" x2="340" y2="150"/><line x1="80" y1="20" x2="80" y2="180"/><line x1="160" y1="20" x2="160" y2="180"/><line x1="240" y1="20" x2="240" y2="180"/><line x1="320" y1="20" x2="320" y2="180"/></g>
+              <g fill="none" stroke-width="1.8">
+                <path d="M30,170 C 90,150 150,110 190,90 S 280,70 330,60" stroke="var(--accent)"/>
+                <path d="M30,150 C 90,140 150,100 190,80 S 280,60 330,50" stroke="var(--data)"/>
+                <path d="M30,130 C 90,130 150,90 190,70 S 280,50 330,40" stroke="var(--field)"/>
+                <path d="M30,190 C 90,160 150,120 190,100 S 280,80 330,70" stroke="var(--warn)"/>
+                <path d="M50,170 C 100,155 160,115 200,95 S 285,75 335,65" stroke="var(--accent-2)"/>
+                <path d="M50,130 C 100,135 160,95 200,75 S 285,55 335,45" stroke="var(--muted)"/>
+              </g>
+              <circle cx="30" cy="170" r="4" fill="var(--accent)"/><circle cx="330" cy="60" r="4" fill="var(--accent-2)"/>
+              <text class="svl" font-size="9" x="30" y="188" text-anchor="start">起飞</text><text class="svl" font-size="9" x="322" y="74" text-anchor="end">降落</text>
+              <g stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 3" fill="none" opacity="0.55"><polygon points="190,90 160,108 220,108"/><polygon points="190,70 160,88 220,88"/></g>
+            </svg></div>
+            <p class="fig-note"><b>结论</b>：一条完整飞行轨迹，比一张合影更能说明“编队跑通了”。</p>
+          </div>
+        </section>
+      </div>
+      <footer class="slide-ft"><div class="ft-left"><span class="ft-dot"></span><span>把集群编队从一次演示，变成一套可复现的实验</span></div><div class="ft-right"><span>章节 <b>05 价值</b></span><span>页码 <b>10</b></span></div></footer>
+    </div></div>
+  </section>
+
+</main>
+
